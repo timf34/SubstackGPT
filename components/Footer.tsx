@@ -14,9 +14,8 @@ export const Footer: FC = () => {
           target="_blank"
           rel="noreferrer"
         >
-          Tim Farrelly
+          Tim Farrelly.
         </a>
-        .
       </div>
 
       <div className="flex space-x-4">

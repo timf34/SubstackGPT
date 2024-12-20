@@ -8,13 +8,27 @@ import { Answer } from '@/components/Answer/Answer';
 import { ArrowRight, ExternalLink, Search } from 'lucide-react';
 import { PGChunk } from '@/types';
 
+// Update the type to match our Substack structure
+interface SubstackChunk {
+  id: number;
+  author: string;
+  essay_title: string;
+  essay_url: string;
+  essay_date: string;
+  content: string;
+  content_length: number;
+  content_tokens: number;
+  similarity: number;
+}
+
 export default function Home() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const [query, setQuery] = useState<string>("");
-  const [chunks, setChunks] = useState<PGChunk[]>([]);
+  const [chunks, setChunks] = useState<SubstackChunk[]>([]);
   const [answer, setAnswer] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string>("");
 
   const [showSettings, setShowSettings] = useState<boolean>(false);
   const [mode, setMode] = useState<"search" | "chat">("chat");
@@ -40,29 +54,36 @@ export default function Home() {
     setChunks([]);
     setLoading(true);
 
-    const searchResponse = await fetch("/api/search", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        query,
-        matches: matchCount,
-        authorName
-      })
-    });
+    try {
+      const searchResponse = await fetch("/api/search", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          query,
+          matches: matchCount,
+          authorName
+        })
+      });
 
-    if (!searchResponse.ok) {
+      if (!searchResponse.ok) {
+        setLoading(false);
+        const errorData = await searchResponse.json();
+        throw new Error(errorData.details || searchResponse.statusText);
+      }
+
+      const results: SubstackChunk[] = await searchResponse.json();
+      setChunks(results);
       setLoading(false);
-      throw new Error(searchResponse.statusText);
+      inputRef.current?.focus();
+
+      return results;
+    } catch (error) {
+      console.error('Search error:', error);
+      setError(error.message);
+      setLoading(false);
     }
-
-    const results: PGChunk[] = await searchResponse.json();
-    setChunks(results);
-    setLoading(false);
-    inputRef.current?.focus();
-
-    return results;
   };
 
   const handleAnswer = async () => {
@@ -80,63 +101,70 @@ export default function Home() {
     setChunks([]);
     setLoading(true);
 
-    const searchResponse = await fetch("/api/search", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        query,
-        matches: matchCount,
-        authorName
-      })
-    });
+    try {
+      const searchResponse = await fetch("/api/search", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          query,
+          matches: matchCount,
+          authorName
+        })
+      });
 
-    if (!searchResponse.ok) {
+      if (!searchResponse.ok) {
+        setLoading(false);
+        const errorData = await searchResponse.json();
+        throw new Error(errorData.details || searchResponse.statusText);
+      }
+
+      const results: SubstackChunk[] = await searchResponse.json();
+      setChunks(results);
+
+      const prompt = `Use the following passages from ${authorName}'s Substack posts to provide an answer to the query: "${query}"
+
+      ${results?.map((d: any) => d.content).join("\n\n")}`;
+
+      const answerResponse = await fetch("/api/answer", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ prompt })
+      });
+
+      if (!answerResponse.ok) {
+        setLoading(false);
+        throw new Error(answerResponse.statusText);
+      }
+
+      const data = answerResponse.body;
+
+      if (!data) {
+        return;
+      }
+
       setLoading(false);
-      throw new Error(searchResponse.statusText);
-    }
 
-    const results: PGChunk[] = await searchResponse.json();
-    setChunks(results);
+      const reader = data.getReader();
+      const decoder = new TextDecoder();
+      let done = false;
 
-    const prompt = `Use the following passages from ${authorName}'s Substack posts to provide an answer to the query: "${query}"
+      while (!done) {
+        const { value, done: doneReading } = await reader.read();
+        done = doneReading;
+        const chunkValue = decoder.decode(value);
+        setAnswer((prev) => prev + chunkValue);
+      }
 
-    ${results?.map((d: any) => d.content).join("\n\n")}`;
-
-    const answerResponse = await fetch("/api/answer", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ prompt })
-    });
-
-    if (!answerResponse.ok) {
+      inputRef.current?.focus();
+    } catch (error) {
+      console.error('Answer error:', error);
+      setError(error.message);
       setLoading(false);
-      throw new Error(answerResponse.statusText);
     }
-
-    const data = answerResponse.body;
-
-    if (!data) {
-      return;
-    }
-
-    setLoading(false);
-
-    const reader = data.getReader();
-    const decoder = new TextDecoder();
-    let done = false;
-
-    while (!done) {
-      const { value, done: doneReading } = await reader.read();
-      done = doneReading;
-      const chunkValue = decoder.decode(value);
-      setAnswer((prev) => prev + chunkValue);
-    }
-
-    inputRef.current?.focus();
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -318,6 +346,11 @@ export default function Home() {
                         </div>
                     )}
                   </>
+              )}
+              {error && (
+                <div className="mt-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded">
+                  {error}
+                </div>
               )}
             </div>
           </div>

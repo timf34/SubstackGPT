@@ -32,3 +32,15 @@ export type PGJSON = {
   tokens: number;
   essays: PGEssay[];
 };
+
+export interface SubstackChunk {
+  id: number;
+  author: string;
+  essay_title: string;
+  essay_url: string;
+  essay_date: string;
+  content: string;
+  content_length: number;
+  content_tokens: number;
+  similarity: number;
+}

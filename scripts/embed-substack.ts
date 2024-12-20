@@ -9,7 +9,7 @@ class RateLimiter {
   private queue: Array<() => Promise<any>> = [];
   private processing = false;
   private lastRequestTime = 0;
-  private requestInterval = 3000; // 3 seconds between requests
+  private requestInterval = 500; // 500ms between requests
 
   async add<T>(fn: () => Promise<T>): Promise<T> {
     return new Promise((resolve, reject) => {
@@ -61,8 +61,8 @@ async function processChunkWithRetry(
   author: string,
   essay: any,
   retryCount = 0,
-  maxRetries = 5,
-  baseDelay = 5000
+  maxRetries = 3,
+  baseDelay = 1000
 ): Promise<boolean> {
   try {
     console.log(`    Generating embedding (attempt ${retryCount + 1})`);
@@ -100,7 +100,7 @@ async function processChunkWithRetry(
       return false;
     }
 
-    const waitTime = baseDelay * Math.pow(2, retryCount);
+    const waitTime = baseDelay * Math.pow(1.5, retryCount);
     console.log(`    Error occurred, waiting ${waitTime/1000} seconds before retry ${retryCount + 1}/${maxRetries}`);
     await sleep(waitTime);
     return processChunkWithRetry(chunk, openai, supabase, author, essay, retryCount + 1, maxRetries, baseDelay);

@@ -3,7 +3,7 @@ import { OpenAIModel } from '@/types';
 
 export interface OpenAIStreamPayload {
   model: string;
-  prompt: string;
+  messages: { role: string; content: string }[];
   temperature: number;
   top_p: number;
   frequency_penalty: number;
@@ -16,7 +16,7 @@ export interface OpenAIStreamPayload {
 export async function OpenAIStream(prompt: string, apiKey: string) {
   const payload: OpenAIStreamPayload = {
     model: 'gpt-3.5-turbo',
-    prompt,
+    messages: [{ role: 'user', content: prompt }],
     temperature: 0.7,
     top_p: 1,
     frequency_penalty: 0,
@@ -29,7 +29,7 @@ export async function OpenAIStream(prompt: string, apiKey: string) {
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
 
-  const res = await fetch('https://api.openai.com/v1/completions', {
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
@@ -53,7 +53,7 @@ export async function OpenAIStream(prompt: string, apiKey: string) {
           }
           try {
             const json = JSON.parse(data);
-            const text = json.choices[0].text;
+            const text = json.choices[0].delta?.content || '';
             const queue = encoder.encode(text);
             controller.enqueue(queue);
           } catch (e) {
