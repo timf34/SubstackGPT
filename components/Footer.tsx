@@ -10,20 +10,11 @@ export const Footer: FC = () => {
         Created by
         <a
           className="hover:opacity-50 mx-1"
-          href="https://twitter.com/mckaywrigley"
+          href="https://timfarrelly.com"
           target="_blank"
           rel="noreferrer"
         >
-          Mckay Wrigley
-        </a>
-        based on the essays of
-        <a
-          className="hover:opacity-50 ml-1"
-          href="https://twitter.com/paulg"
-          target="_blank"
-          rel="noreferrer"
-        >
-          Paul Graham
+          Tim Farrelly
         </a>
         .
       </div>
@@ -40,7 +31,7 @@ export const Footer: FC = () => {
 
         <a
           className="flex items-center hover:opacity-50"
-          href="https://github.com/mckaywrigley/paul-graham-gpt"
+          href="https://github.com/timf34/SubstackGPT"
           target="_blank"
           rel="noreferrer"
         >
