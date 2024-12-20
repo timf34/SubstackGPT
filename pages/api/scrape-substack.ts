@@ -15,32 +15,47 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+
+    // Helper function to send SSE messages
+    const sendSSE = (data: any) => {
+        res.write(`data: ${JSON.stringify(data)}\n\n`);
+        // Flush the response to ensure the client receives it immediately
+        if (res.flush) {
+            res.flush();
+        }
+    };
 
     try {
+        console.log('Starting scrape with SSE...');
+        sendSSE({ type: 'start' });
+
         const scraper = new SubstackScraper(url, {
             onProgress: (current, total, currentTitle) => {
-                res.write(`data: ${JSON.stringify({
+                console.log(`Sending progress: ${current}/${total}`);
+                sendSSE({
                     type: 'progress',
                     current,
                     total,
                     currentTitle
-                })}\n\n`);
+                });
             }
         });
 
         const data = await scraper.scrape();
         
-        res.write(`data: ${JSON.stringify({
+        sendSSE({
             type: 'complete',
             result: data
-        })}\n\n`);
+        });
         
         res.end();
     } catch (error: any) {
-        res.write(`data: ${JSON.stringify({
+        console.error('Scraping error:', error);
+        sendSSE({
             type: 'error',
             message: error.message
-        })}\n\n`);
+        });
         res.end();
     }
 }

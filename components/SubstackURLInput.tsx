@@ -28,6 +28,12 @@ interface Progress {
     currentTitle?: string;
 }
 
+declare global {
+    interface Window {
+        activeEventSource?: EventSource;
+    }
+}
+
 const SubstackURLInput = ({ onScrapeComplete }: SubstackURLInputProps) => {
     const [url, setUrl] = useState('');
     const [isLoading, setIsLoading] = useState(false);
@@ -40,36 +46,71 @@ const SubstackURLInput = ({ onScrapeComplete }: SubstackURLInputProps) => {
         setError('');
         setSuccess('');
         setProgress(null);
-
-        // TODO: Add validation for URL... tricky to do as custom domains can be used. Should use .xml/ .rss to validate
-
         setIsLoading(true);
 
+        // Close any existing EventSource
+        if (window.activeEventSource) {
+            window.activeEventSource.close();
+        }
+
         try {
+            console.log('Creating EventSource connection...');
             const eventSource = new EventSource(`/api/scrape-substack?url=${encodeURIComponent(url)}`);
+            // Store the EventSource instance globally so we can close it if needed
+            window.activeEventSource = eventSource;
             
             eventSource.onmessage = (event) => {
-                const data = JSON.parse(event.data);
-                if (data.type === 'progress') {
-                    setProgress({
-                        current: data.current,
-                        total: data.total,
-                        currentTitle: data.currentTitle
-                    });
-                } else if (data.type === 'complete') {
-                    eventSource.close();
-                    setSuccess('Successfully scraped Substack posts!');
-                    onScrapeComplete(data.result);
-                    setIsLoading(false);
+                try {
+                    console.log('Raw SSE message:', event.data);
+                    const data = JSON.parse(event.data);
+                    console.log('Parsed SSE data:', data);
+                    
+                    switch (data.type) {
+                        case 'start':
+                            console.log('Scraping started');
+                            break;
+                            
+                        case 'progress':
+                            console.log(`Progress update: ${data.current}/${data.total}`);
+                            setProgress({
+                                current: data.current,
+                                total: data.total,
+                                currentTitle: data.currentTitle
+                            });
+                            break;
+                            
+                        case 'complete':
+                            console.log('Scraping complete!');
+                            eventSource.close();
+                            setSuccess('Successfully scraped Substack posts!');
+                            onScrapeComplete(data.result);
+                            setIsLoading(false);
+                            break;
+                            
+                        case 'error':
+                            console.error('Error from SSE:', data.message);
+                            eventSource.close();
+                            setError(data.message || 'Failed to scrape Substack');
+                            setIsLoading(false);
+                            break;
+                    }
+                } catch (err) {
+                    console.error('Error parsing SSE message:', err);
                 }
             };
 
-            eventSource.onerror = () => {
+            eventSource.onerror = (error) => {
+                console.error('SSE connection error:', error);
                 eventSource.close();
-                setError('Failed to scrape Substack. Please try again.');
+                setError('Connection error. Please try again.');
                 setIsLoading(false);
             };
+
+            eventSource.onopen = () => {
+                console.log('SSE connection opened successfully');
+            };
         } catch (err) {
+            console.error('Error in handleSubmit:', err);
             setError('Failed to scrape Substack. Please try again.');
             setIsLoading(false);
         }
@@ -107,21 +148,25 @@ const SubstackURLInput = ({ onScrapeComplete }: SubstackURLInputProps) => {
                 </div>
 
                 {progress && (
-                    <div className="mt-4">
-                        <div className="w-full bg-gray-200 rounded-full h-2.5">
-                            <div 
-                                className="bg-blue-600 h-2.5 rounded-full transition-all duration-300" 
-                                style={{ width: `${(progress.current / progress.total) * 100}%` }}
-                            ></div>
+                    <div className="mt-4 p-4 border rounded-lg bg-white shadow-sm">
+                        <div className="mb-2">
+                            <div className="w-full bg-gray-200 rounded-full h-2.5 mb-2">
+                                <div 
+                                    className="bg-blue-600 h-2.5 rounded-full transition-all duration-300" 
+                                    style={{ width: `${(progress.current / progress.total) * 100}%` }}
+                                />
+                            </div>
+                            <div className="flex justify-between text-sm text-gray-600">
+                                <span>Progress: {Math.round((progress.current / progress.total) * 100)}%</span>
+                                <span>{progress.current} of {progress.total} posts</span>
+                            </div>
                         </div>
-                        <p className="text-sm text-gray-600 mt-2">
-                            Scraped {progress.current} of {progress.total} posts
-                            {progress.currentTitle && (
-                                <span className="block italic">
-                                    Currently processing: {progress.currentTitle}
-                                </span>
-                            )}
-                        </p>
+                        {progress.currentTitle && (
+                            <div className="text-sm text-gray-600 mt-2">
+                                <span className="font-medium">Currently processing:</span>
+                                <span className="italic ml-2">{progress.currentTitle}</span>
+                            </div>
+                        )}
                     </div>
                 )}
 
