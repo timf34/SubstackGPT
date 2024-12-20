@@ -1,3 +1,5 @@
+/// <reference types="react" />
+
 // pages/index.tsx
 import { useRef, useState, KeyboardEvent, useEffect } from 'react';
 import Head from 'next/head';
@@ -79,9 +81,13 @@ export default function Home() {
       inputRef.current?.focus();
 
       return results;
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Search error:', error);
-      setError(error.message);
+      if (error instanceof Error) {
+        setError(error.message);
+      } else {
+        setError('An unknown error occurred');
+      }
       setLoading(false);
     }
   };

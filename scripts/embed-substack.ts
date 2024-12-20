@@ -4,58 +4,68 @@ import { SubstackJSON } from '@/types';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// Rate limiting helper
+// Improved rate limiter with better concurrency management
 class RateLimiter {
-  private queue: Array<() => Promise<any>> = [];
-  private processing = false;
+  private queue: Array<{
+    fn: () => Promise<any>;
+    resolve: (value: any) => void;
+    reject: (error: any) => void;
+  }> = [];
+  private activeRequests = 0;
   private lastRequestTime = 0;
   private requestInterval = 500; // 500ms between requests
+  private maxConcurrent = 3;
 
   async add<T>(fn: () => Promise<T>): Promise<T> {
     return new Promise((resolve, reject) => {
-      this.queue.push(async () => {
-        try {
-          const result = await fn();
-          resolve(result);
-        } catch (error) {
-          reject(error);
-        }
-      });
-      
-      if (!this.processing) {
-        this.processQueue();
-      }
+      this.queue.push({ fn, resolve, reject });
+      this.processNextRequest();
     });
   }
 
-  private async processQueue() {
-    if (this.queue.length === 0) {
-      this.processing = false;
+  private async processNextRequest() {
+    if (
+      this.queue.length === 0 || 
+      this.activeRequests >= this.maxConcurrent
+    ) {
       return;
     }
 
-    this.processing = true;
     const now = Date.now();
-    const timeSinceLastRequest = now - this.lastRequestTime;
-    
-    if (timeSinceLastRequest < this.requestInterval) {
-      await sleep(this.requestInterval - timeSinceLastRequest);
+    const timeToWait = Math.max(0, this.requestInterval - (now - this.lastRequestTime));
+
+    if (timeToWait > 0) {
+      await sleep(timeToWait);
     }
 
-    const fn = this.queue.shift();
-    if (fn) {
-      this.lastRequestTime = Date.now();
-      await fn();
+    const request = this.queue.shift();
+    if (!request) return;
+
+    this.activeRequests++;
+    this.lastRequestTime = Date.now();
+
+    try {
+      const result = await request.fn();
+      request.resolve(result);
+    } catch (error) {
+      request.reject(error);
+    } finally {
+      this.activeRequests--;
+      this.processNextRequest();
     }
 
-    await this.processQueue();
+    // Process next requests in parallel if possible
+    if (this.activeRequests < this.maxConcurrent) {
+      this.processNextRequest();
+    }
   }
 }
 
 const rateLimiter = new RateLimiter();
 
-async function processChunkWithRetry(
-  chunk: any,
+// Batch processor for chunks
+async function processBatch(
+  chunks: any[],
   openai: OpenAIApi,
   supabase: any,
   author: string,
@@ -65,19 +75,29 @@ async function processChunkWithRetry(
   baseDelay = 1000
 ): Promise<boolean> {
   try {
-    console.log(`    Generating embedding (attempt ${retryCount + 1})`);
+    console.log(`    Generating embeddings for batch of ${chunks.length} chunks (attempt ${retryCount + 1})`);
     
-    const embeddingResponse = await rateLimiter.add(() => 
-      openai.createEmbedding({
-        model: 'text-embedding-ada-002',
-        input: chunk.content,
+    // Process embeddings with better progress tracking
+    const embeddingResponses = await Promise.all(
+      chunks.map(async (chunk, index) => {
+        try {
+          const response = await rateLimiter.add(() => 
+            openai.createEmbedding({
+              model: 'text-embedding-ada-002',
+              input: chunk.content,
+            })
+          );
+          console.log(`      ✓ Generated embedding ${index + 1}/${chunks.length}`);
+          return response;
+        } catch (error) {
+          console.error(`      ✗ Failed to generate embedding ${index + 1}/${chunks.length}`);
+          throw error;
+        }
       })
     );
 
-    const [{ embedding }] = embeddingResponse.data.data;
-
-    console.log('    Inserting into Supabase...');
-    const { error: insertError } = await supabase.from('substack_embeddings').insert({
+    // Prepare bulk insert data
+    const insertData = chunks.map((chunk, idx) => ({
       author,
       essay_title: essay.title,
       essay_url: essay.url,
@@ -85,14 +105,25 @@ async function processChunkWithRetry(
       content: chunk.content,
       content_length: chunk.content_length,
       content_tokens: chunk.content_tokens,
-      embedding,
-    });
+      embedding: embeddingResponses[idx].data.data[0].embedding,
+    }));
 
-    if (insertError) {
-      throw new Error(`Supabase error: ${insertError.message}`);
+    // Split bulk insert into smaller chunks if needed
+    const SUPABASE_CHUNK_SIZE = 5;
+    for (let i = 0; i < insertData.length; i += SUPABASE_CHUNK_SIZE) {
+      const chunk = insertData.slice(i, i + SUPABASE_CHUNK_SIZE);
+      console.log(`    Inserting chunk ${Math.floor(i/SUPABASE_CHUNK_SIZE) + 1}/${Math.ceil(insertData.length/SUPABASE_CHUNK_SIZE)}`);
+      
+      const { error: insertError } = await supabase
+        .from('substack_embeddings')
+        .insert(chunk);
+
+      if (insertError) {
+        throw new Error(`Supabase error: ${insertError.message}`);
+      }
     }
 
-    console.log('    Successfully processed chunk');
+    console.log('    Successfully processed batch');
     return true;
   } catch (error: any) {
     if (retryCount >= maxRetries) {
@@ -103,7 +134,7 @@ async function processChunkWithRetry(
     const waitTime = baseDelay * Math.pow(1.5, retryCount);
     console.log(`    Error occurred, waiting ${waitTime/1000} seconds before retry ${retryCount + 1}/${maxRetries}`);
     await sleep(waitTime);
-    return processChunkWithRetry(chunk, openai, supabase, author, essay, retryCount + 1, maxRetries, baseDelay);
+    return processBatch(chunks, openai, supabase, author, essay, retryCount + 1, maxRetries, baseDelay);
   }
 }
 
@@ -135,17 +166,27 @@ const generateEmbeddings = async (substackData: SubstackJSON) => {
   }
 
   console.log(`Generating embeddings for ${substackData.essays.length} essays...`);
+  
+  const BATCH_SIZE = 10; // Process 10 chunks at a time
+  let totalChunks = 0;
+  let processedChunks = 0;
+
+  // Calculate total chunks for progress tracking
+  substackData.essays.forEach(essay => {
+    totalChunks += essay.chunks.length;
+  });
 
   for (let i = 0; i < substackData.essays.length; i++) {
     const essay = substackData.essays[i];
     console.log(`Processing essay ${i + 1}/${substackData.essays.length}: "${essay.title}"`);
     
-    for (let j = 0; j < essay.chunks.length; j++) {
-      const chunk = essay.chunks[j];
-      console.log(`  Processing chunk ${j + 1}/${essay.chunks.length}`);
+    // Process chunks in batches
+    for (let j = 0; j < essay.chunks.length; j += BATCH_SIZE) {
+      const batch = essay.chunks.slice(j, j + BATCH_SIZE);
+      console.log(`  Processing batch ${Math.floor(j/BATCH_SIZE) + 1}/${Math.ceil(essay.chunks.length/BATCH_SIZE)}`);
       
-      const success = await processChunkWithRetry(
-        chunk,
+      const success = await processBatch(
+        batch,
         openai,
         supabase,
         substackData.author,
@@ -153,9 +194,13 @@ const generateEmbeddings = async (substackData: SubstackJSON) => {
       );
 
       if (!success) {
-        console.error(`  Failed to process chunk ${j + 1} after all retries`);
+        console.error(`  Failed to process batch after all retries`);
         continue;
       }
+
+      processedChunks += batch.length;
+      const progress = ((processedChunks / totalChunks) * 100).toFixed(1);
+      console.log(`Progress: ${progress}% (${processedChunks}/${totalChunks} chunks)`);
     }
   }
   

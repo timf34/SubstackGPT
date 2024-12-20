@@ -133,7 +133,7 @@ export class SubstackScraper {
             };
         } catch (error: unknown) {
             if (error instanceof Error) {
-                console.error(`❌ Error processing ${url}:`, error.message);
+            console.error(`❌ Error processing ${url}:`, error.message);
             } else {
                 console.error(`❌ Error processing ${url}:`, String(error));
             }
