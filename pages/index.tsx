@@ -145,7 +145,7 @@ export default function Home() {
   };
 
   const handleSave = () => {
-    if (apiKey.length !== 51) {
+    if (apiKey.length !== 164) {
       alert("Please enter a valid API key.");
       return;
     }
@@ -286,7 +286,7 @@ export default function Home() {
               </div>
             )}
 
-            {apiKey.length === 51 ? (
+            {apiKey.length === 164 ? (
               <div className="relative w-full mt-4">
                 <IconSearch className="absolute top-3 w-10 left-1 h-6 rounded-full opacity-50 sm:left-3 sm:top-4 sm:h-8" />
 
