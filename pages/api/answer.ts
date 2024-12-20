@@ -1,23 +1,18 @@
-import { OpenAIStream } from "@/utils";
+import { NextApiRequest, NextApiResponse } from 'next';
+import { OpenAIStream } from '@/utils/OpenAIStream';
 
-export const config = {
-  runtime: "edge"
-};
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const { prompt } = req.body;
 
-const handler = async (req: Request): Promise<Response> => {
+  if (!prompt) {
+    return res.status(400).json({ error: 'No prompt provided' });
+  }
+
   try {
-    const { prompt, apiKey } = (await req.json()) as {
-      prompt: string;
-      apiKey: string;
-    };
-
-    const stream = await OpenAIStream(prompt, apiKey);
-
+    const stream = await OpenAIStream(prompt, process.env.OPENAI_API_KEY!);
     return new Response(stream);
   } catch (error) {
-    console.error(error);
-    return new Response("Error", { status: 500 });
+    console.error('Error in answer API:', error);
+    return res.status(500).json({ error: 'Error generating answer' });
   }
-};
-
-export default handler;
+}

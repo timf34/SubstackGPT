@@ -131,8 +131,12 @@ export class SubstackScraper {
                 tokens: encode(markdown).length,
                 chunks
             };
-        } catch (error) {
-            console.error(`❌ Error processing ${url}:`, error.message);
+        } catch (error: unknown) {
+            if (error instanceof Error) {
+                console.error(`❌ Error processing ${url}:`, error.message);
+            } else {
+                console.error(`❌ Error processing ${url}:`, String(error));
+            }
             return null;
         }
     }
@@ -188,13 +192,22 @@ export class SubstackScraper {
         const urls = await this.fetchUrlsFromSitemap();
         const essays: SubstackPost[] = [];
 
-        for (let index = 0; index < urls.length; index++) {
-            const url = urls[index];
-            console.log(`🔄 Scraping post ${index + 1}/${urls.length}: ${url}`);
+        // Apply development mode limit if enabled
+        const devMode = process.env.NEXT_PUBLIC_DEV_MODE === 'true';
+        const devLimit = parseInt(process.env.DEV_MODE_ARTICLE_LIMIT || '5');
+        const urlsToProcess = devMode ? urls.slice(0, devLimit) : urls;
+
+        if (devMode) {
+            console.log(`🔧 Development mode: Processing only ${devLimit} articles`);
+        }
+
+        for (let index = 0; index < urlsToProcess.length; index++) {
+            const url = urlsToProcess[index];
+            console.log(`🔄 Scraping post ${index + 1}/${urlsToProcess.length}: ${url}`);
             const post = await this.getPostContent(url);
             if (post) {
                 essays.push(post);
-                this.options.onProgress?.(index + 1, urls.length, post.title);
+                this.options.onProgress?.(index + 1, urlsToProcess.length, post.title);
                 console.log(`✅ Successfully scraped: ${post.title}`);
             }
         }

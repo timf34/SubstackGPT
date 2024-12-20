@@ -38,7 +38,7 @@ async function processChunkWithRetry(
   supabase: any,
   retryCount = 0,
   maxRetries = 8,
-  baseDelay = 100
+  baseDelay = 120
 ): Promise<boolean> {
   try {
     const embeddingResponse = await openai.createEmbedding({

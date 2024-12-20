@@ -1,50 +1,73 @@
-import { supabaseAdmin } from "@/utils";
+import { NextApiRequest, NextApiResponse } from 'next';
+import { createClient } from '@supabase/supabase-js';
+import { Configuration, OpenAIApi } from 'openai';
 
-export const config = {
-  runtime: "edge"
-};
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
 
-const handler = async (req: Request): Promise<Response> => {
+  const { query, matches = 5, authorName } = req.body;
+
+  if (!query) {
+    return res.status(400).json({ error: 'No query provided' });
+  }
+
+  if (!authorName) {
+    return res.status(400).json({ error: 'No author provided' });
+  }
+
   try {
-    const { query, apiKey, matches } = (await req.json()) as {
-      query: string;
-      apiKey: string;
-      matches: number;
-    };
+    console.log(`Processing search query for author: ${authorName}`);
+    
+    const configuration = new Configuration({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+    const openai = new OpenAIApi(configuration);
 
-    const input = query.replace(/\n/g, " ");
-
-    const res = await fetch("https://api.openai.com/v1/embeddings", {
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`
-      },
-      method: "POST",
-      body: JSON.stringify({
-        model: "text-embedding-ada-002",
-        input
-      })
+    console.log('Generating embedding for query...');
+    const embedding = await openai.createEmbedding({
+      model: 'text-embedding-ada-002',
+      input: query,
     });
 
-    const json = await res.json();
-    const embedding = json.data[0].embedding;
+    console.log('Connecting to Supabase...');
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
 
-    const { data: chunks, error } = await supabaseAdmin.rpc("pg_search", {
-      query_embedding: embedding,
-      similarity_threshold: 0.01,
-      match_count: matches
+    console.log('Searching for matches...');
+    const { data: chunks, error } = await supabase.rpc('match_substack_embeddings', {
+      query_embedding: embedding.data.data[0].embedding,
+      match_threshold: 0.5,
+      match_count: matches,
+      author_name: authorName,
     });
 
     if (error) {
-      console.error(error);
-      return new Response("Error", { status: 500 });
+      console.error('Error matching embeddings:', error);
+      return res.status(500).json({ 
+        error: 'Error matching embeddings',
+        details: error.message 
+      });
     }
 
-    return new Response(JSON.stringify(chunks), { status: 200 });
-  } catch (error) {
-    console.error(error);
-    return new Response("Error", { status: 500 });
-  }
-};
+    if (!chunks || chunks.length === 0) {
+      console.log('No matches found');
+      return res.status(404).json({ 
+        error: 'No matches found',
+        details: 'No content matches your query closely enough' 
+      });
+    }
 
-export default handler;
+    console.log(`Found ${chunks.length} matches`);
+    return res.status(200).json(chunks);
+  } catch (error: any) {
+    console.error('Error in search:', error);
+    return res.status(500).json({ 
+      error: 'Error processing search',
+      details: error.message 
+    });
+  }
+}

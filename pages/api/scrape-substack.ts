@@ -1,5 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { SubstackScraper } from '@/scripts/substack_scraper';
+import { generateEmbeddings } from '@/scripts/embed-substack';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (req.method !== 'GET') {
@@ -43,6 +44,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         });
 
         const data = await scraper.scrape();
+        await generateEmbeddings(data);
         
         sendSSE({
             type: 'complete',

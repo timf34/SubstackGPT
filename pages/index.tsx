@@ -1,5 +1,5 @@
 // pages/index.tsx
-import { useRef, useState, KeyboardEvent } from 'react';
+import { useRef, useState, KeyboardEvent, useEffect } from 'react';
 import Head from 'next/head';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
@@ -19,7 +19,6 @@ export default function Home() {
   const [showSettings, setShowSettings] = useState<boolean>(false);
   const [mode, setMode] = useState<"search" | "chat">("chat");
   const [matchCount, setMatchCount] = useState<number>(5);
-  const [apiKey, setApiKey] = useState<string>("");
 
   // New state for Substack integration
   const [isScraped, setIsScraped] = useState<boolean>(false);
@@ -27,11 +26,6 @@ export default function Home() {
   const [substackData, setSubstackData] = useState<any>(null);
 
   const handleSearch = async () => {
-    if (!apiKey) {
-      alert("Please enter an API key.");
-      return;
-    }
-
     if (!query) {
       alert("Please enter a query.");
       return;
@@ -53,9 +47,8 @@ export default function Home() {
       },
       body: JSON.stringify({
         query,
-        apiKey,
         matches: matchCount,
-        authorName // Pass the author name to search within the correct embeddings
+        authorName
       })
     });
 
@@ -73,11 +66,6 @@ export default function Home() {
   };
 
   const handleAnswer = async () => {
-    if (!apiKey) {
-      alert("Please enter an API key.");
-      return;
-    }
-
     if (!query) {
       alert("Please enter a query.");
       return;
@@ -99,7 +87,6 @@ export default function Home() {
       },
       body: JSON.stringify({
         query,
-        apiKey,
         matches: matchCount,
         authorName
       })
@@ -122,7 +109,7 @@ export default function Home() {
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ prompt, apiKey })
+      body: JSON.stringify({ prompt })
     });
 
     if (!answerResponse.ok) {
@@ -163,6 +150,7 @@ export default function Home() {
   };
 
   const handleScrapeComplete = (data: any) => {
+    console.log('Scraping completed:', data);
     setIsScraped(true);
     setAuthorName(data.author);
     setSubstackData(data);
@@ -218,17 +206,6 @@ export default function Home() {
                                 value={matchCount}
                                 onChange={(e) => setMatchCount(Number(e.target.value))}
                                 className="max-w-[400px] block w-full rounded-md border border-gray-300 p-2 text-black shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 sm:text-sm"
-                            />
-                          </div>
-
-                          <div className="mt-2">
-                            <div>OpenAI API Key</div>
-                            <input
-                                type="password"
-                                placeholder="OpenAI API Key"
-                                className="max-w-[400px] block w-full rounded-md border border-gray-300 p-2 text-black shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 sm:text-sm"
-                                value={apiKey}
-                                onChange={(e) => setApiKey(e.target.value)}
                             />
                           </div>
                         </div>
