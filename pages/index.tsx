@@ -9,6 +9,7 @@ import SubstackURLInput from '@/components/SubstackURLInput';
 import { Answer } from '@/components/Answer/Answer';
 import { ArrowRight, ExternalLink, Search } from 'lucide-react';
 import { PGChunk } from '@/types';
+import WriterSelect from '@/components/WriterSelect';
 
 // Update the type to match our Substack structure
 interface SubstackChunk {
@@ -40,6 +41,9 @@ export default function Home() {
   const [isScraped, setIsScraped] = useState<boolean>(false);
   const [authorName, setAuthorName] = useState<string>("");
   const [substackData, setSubstackData] = useState<any>(null);
+
+  const [showWriterSelect, setShowWriterSelect] = useState(true);
+  const [selectedWriter, setSelectedWriter] = useState<any>(null);
 
   const handleSearch = async () => {
     if (!query) {
@@ -190,6 +194,31 @@ export default function Home() {
     setSubstackData(data);
   };
 
+  const handleWriterSelect = (writer: any) => {
+    setSelectedWriter(writer);
+    setAuthorName(writer.name);
+    setIsScraped(true);  // Add this line to enable chat immediately
+    setShowWriterSelect(false);
+    setSubstackData({    // Add this to set minimal required data
+      author: writer.name,
+      url: writer.substack_url
+    });
+  };
+
+  const handleNewWriter = () => {
+    setShowWriterSelect(false);
+  };
+
+  const handleBackToWriters = () => {
+    setShowWriterSelect(true);
+    setSelectedWriter(null);
+    setAuthorName('');
+    setIsScraped(false);  // Reset scrape state
+    setSubstackData(null);
+    setChunks([]);       // Clear any existing chat/search results
+    setAnswer('');
+  };
+
   return (
       <>
         <Head>
@@ -206,8 +235,16 @@ export default function Home() {
           <Navbar authorName={authorName} substackUrl={substackData?.url} />
           <div className="flex-1 overflow-auto">
             <div className="mx-auto flex h-full w-full max-w-[750px] flex-col items-center px-3 pt-4 sm:pt-8">
-              {!isScraped ? (
-                  <SubstackURLInput onScrapeComplete={handleScrapeComplete} />
+              {showWriterSelect ? (
+                <WriterSelect
+                  onWriterSelect={handleWriterSelect}
+                  onNewWriter={handleNewWriter}
+                />
+              ) : !isScraped ? (
+                <SubstackURLInput 
+                  onScrapeComplete={handleScrapeComplete}
+                  onBack={handleBackToWriters}
+                />
               ) : (
                   <>
                     <button

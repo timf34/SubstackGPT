@@ -1,5 +1,6 @@
 import React, { useState, ReactNode } from 'react';
 import { ExternalLink, Loader2 } from 'lucide-react';
+import { createClient } from '@supabase/supabase-js';
 
 interface AlertProps {
     children: ReactNode;
@@ -20,6 +21,7 @@ const AlertDescription = ({ children }: AlertDescriptionProps) => <div className
 
 interface SubstackURLInputProps {
     onScrapeComplete: (data: any) => void;
+    onBack: () => void;
 }
 
 interface Progress {
@@ -34,12 +36,37 @@ declare global {
     }
 }
 
-const SubstackURLInput = ({ onScrapeComplete }: SubstackURLInputProps) => {
+const SubstackURLInput = ({ onScrapeComplete, onBack }: SubstackURLInputProps) => {
     const [url, setUrl] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
     const [progress, setProgress] = useState<Progress | null>(null);
+
+    const saveWriter = async (data: any) => {
+        const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+        );
+
+        const { error } = await supabase
+            .from('writers')
+            .upsert({
+                name: data.author,
+                substack_url: data.url,
+                last_scraped_at: new Date().toISOString()
+            }, {
+                onConflict: 'substack_url',
+                update: {
+                    last_scraped_at: new Date().toISOString()
+                }
+            });
+
+        if (error) {
+            console.error('Error saving writer:', error);
+            throw error;
+        }
+    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -59,7 +86,7 @@ const SubstackURLInput = ({ onScrapeComplete }: SubstackURLInputProps) => {
             // Store the EventSource instance globally so we can close it if needed
             window.activeEventSource = eventSource;
             
-            eventSource.onmessage = (event) => {
+            eventSource.onmessage = async (event) => {
                 try {
                     console.log('Raw SSE message:', event.data);
                     const data = JSON.parse(event.data);
@@ -82,8 +109,13 @@ const SubstackURLInput = ({ onScrapeComplete }: SubstackURLInputProps) => {
                         case 'complete':
                             console.log('Scraping complete!');
                             eventSource.close();
-                            setSuccess('Successfully scraped Substack posts!');
-                            onScrapeComplete(data.result);
+                            try {
+                                await saveWriter(data.result);
+                                setSuccess('Successfully scraped and saved Substack posts!');
+                                onScrapeComplete(data.result);
+                            } catch (err) {
+                                setError('Failed to save writer information');
+                            }
                             setIsLoading(false);
                             break;
                             
@@ -118,6 +150,12 @@ const SubstackURLInput = ({ onScrapeComplete }: SubstackURLInputProps) => {
 
     return (
         <div className="w-full max-w-2xl mx-auto p-4">
+            <button
+                onClick={onBack}
+                className="mb-4 text-sm text-gray-600 hover:text-gray-900"
+            >
+                ← Back to writer selection
+            </button>
             <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="flex flex-col space-y-2">
                     <label htmlFor="substack-url" className="text-sm font-medium">

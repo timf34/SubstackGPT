@@ -194,3 +194,16 @@ with (lists = 100);
 
 -- Create index on author for faster filtering
 create index idx_substack_embeddings_author on substack_embeddings(author);
+
+-- Create writers table
+create table writers (
+  id uuid default uuid_generate_v4() primary key,
+  name text not null,
+  substack_url text not null unique,
+  avatar_url text,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  last_scraped_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- Create index on name for faster searches
+create index writers_name_idx on writers(name);
