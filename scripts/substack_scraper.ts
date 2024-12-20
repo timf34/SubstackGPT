@@ -52,6 +52,44 @@ export class SubstackScraper {
         this.writerName = this.extractMainPart(baseSubstackUrl);
         this.turndownService = new TurndownService();
         this.options = options;
+
+        // Configure Turndown to remove unwanted elements
+        this.turndownService.remove(['style', 'script', 'iframe', 'noscript']);
+        
+        // Remove images and figures
+        this.turndownService.addRule('removeImages', {
+            filter: ['img', 'figure', 'figcaption'],
+            replacement: () => ''
+        });
+
+        // Keep link text but remove the actual links
+        this.turndownService.addRule('removeLinks', {
+            filter: ['a'],
+            replacement: (content) => content
+        });
+
+        // Remove formatting but keep the content
+        this.turndownService.addRule('removeFormatting', {
+            filter: ['strong', 'em', 'i', 'b', 'code', 'pre', 'blockquote', 'sup', 'sub'],
+            replacement: (content) => content
+        });
+
+        // Remove social media embeds and other common embed types
+        this.turndownService.addRule('removeEmbeds', {
+            filter: ['div', 'span'],
+            replacement: (content, node) => {
+                const element = node as HTMLElement;
+                // Check if the element or its parents have classes related to embeds
+                if (
+                    element.className.match(/embed|twitter|social|share|video|audio|player/i) ||
+                    element.id.match(/embed|twitter|social|share|video|audio|player/i)
+                ) {
+                    return '';
+                }
+                return content;
+            }
+        });
+
         console.log(`🚀 Initialized SubstackScraper for ${this.writerName} at ${this.baseUrl}`);
     }
 
@@ -88,6 +126,18 @@ export class SubstackScraper {
         );
     }
 
+    private cleanText(text: string): string {
+        return text
+            // Remove multiple newlines
+            .replace(/\n{3,}/g, '\n\n')
+            // Remove multiple spaces
+            .replace(/[ ]{2,}/g, ' ')
+            // Remove spaces at the beginning of lines
+            .replace(/^\s+/gm, '')
+            // Remove empty lines at start and end
+            .trim();
+    }
+
     private async getPostContent(url: string): Promise<SubstackPost | null> {
         try {
             console.log(`📥 Fetching content from ${url}`);
@@ -116,7 +166,9 @@ export class SubstackScraper {
             }
 
             console.log(`🔄 Converting HTML to Markdown for "${title}"`);
-            const markdown = this.turndownService.turndown(contentElement.outerHTML);
+            const markdown = this.cleanText(
+                this.turndownService.turndown(contentElement.outerHTML)
+            );
             console.log(`✅ Markdown conversion complete for "${title}"`);
             
             const chunks = this.createChunks(markdown, title, url, date);
